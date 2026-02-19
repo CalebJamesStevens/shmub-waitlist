@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"embed"
-	"io/fs"
 	"encoding/json"
-	"errors"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -57,14 +57,34 @@ func main() {
 
 	s := &server{db: pool, origin: origin}
 
-	mux := http.NewServeMux()
+	// Build static file server from embedded FS.
+	sub, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		log.Fatalf("static fs sub failed: %v", err)
+	}
+	fileServer := http.FileServer(http.FS(sub))
+	static := withCache(withContentTypes(fileServer))
 
-	// Landing page
-	mux.Handle("/", withCache(staticHandler()))
+	mux := http.NewServeMux()
 
 	// API
 	mux.HandleFunc("/healthz", s.healthz)
 	mux.HandleFunc("/api/waitlist", s.waitlist)
+
+	// Serve /static/* for legacy paths (if your HTML still references /static/style.css)
+	mux.Handle("/static/", http.StripPrefix("/static/", static))
+
+	// Serve / and all other assets from static root.
+	// "/" becomes "/index.html" so you don't get a directory listing.
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = "/index.html"
+			static.ServeHTTP(w, r2)
+			return
+		}
+		static.ServeHTTP(w, r)
+	}))
 
 	// Basic hardening headers
 	h := withSecurityHeaders(mux)
@@ -92,15 +112,6 @@ create unique index if not exists waitlist_signups_email_uniq
 	return err
 }
 
-func staticHandler() http.Handler {
-    sub, err := fs.Sub(staticFS, "static")
-    if err != nil {
-        panic(err)
-    }
-    return http.FileServer(http.FS(sub))
-}
-
-
 func withCache(next http.Handler) http.Handler {
 	// Cache CSS aggressively, keep HTML relatively fresh
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,14 +125,43 @@ func withCache(next http.Handler) http.Handler {
 	})
 }
 
+func withContentTypes(next http.Handler) http.Handler {
+	// Helps avoid strict MIME checking issues if upstream defaults are weird.
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ext := strings.ToLower(filepath.Ext(r.URL.Path))
+		switch ext {
+		case ".css":
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case ".js":
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		case ".html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		case ".svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
+		case ".ico":
+			w.Header().Set("Content-Type", "image/x-icon")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Tight defaults, still allows inline-free CSS and same-origin POST
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		w.Header().Set("Content-Security-Policy","default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self';")
+
+		// Allow your current inline <script> in index.html.
+		// Tighten later by moving JS into /script.js and removing 'unsafe-inline'.
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline'; "+
+				"style-src 'self'; "+
+				"base-uri 'none'; "+
+				"form-action 'self'; "+
+				"frame-ancestors 'none'")
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -134,7 +174,7 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+	_, _ = w.Write([]byte("ok"))
 }
 
 func (s *server) waitlist(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +214,6 @@ func (s *server) waitlist(w http.ResponseWriter, r *http.Request) {
 
 	// Bot trap
 	if strings.TrimSpace(req.Honeypot) != "" {
-		// Return success to not tip off bots
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
@@ -199,13 +238,11 @@ func (s *server) waitlist(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	// Insert with dedupe
 	_, err := s.db.Exec(ctx, `
 insert into waitlist_signups (email, source, ip, user_agent)
 values ($1, $2, $3, $4)
 on conflict (lower(email)) do nothing
 `, email, nullIfEmpty(source), ip, nullIfEmpty(ua))
-
 	if err != nil {
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
@@ -229,7 +266,6 @@ func (s *server) cors(w http.ResponseWriter, r *http.Request) {
 }
 
 func clientIP(r *http.Request) any {
-	// Prefer proxy headers (Coolify can sit behind a proxy)
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff != "" {
 		parts := strings.Split(xff, ",")
@@ -278,5 +314,3 @@ func getenv(key, fallback string) string {
 	}
 	return v
 }
-
-var _ = errors.New

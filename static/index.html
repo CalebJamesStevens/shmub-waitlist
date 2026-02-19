@@ -86,5 +86,48 @@
       </div>
 
     </main>
+    <script>
+  (function () {
+    var form = document.getElementById("waitlist");
+    var msg = document.getElementById("msg");
+    if (!form || !msg) return;
+
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault(); // ✅ stop browser navigation to /api/waitlist
+
+      msg.textContent = "Submitting...";
+      msg.setAttribute("data-state", "loading");
+
+      var fd = new FormData(form);
+      var payload = {
+        email: String(fd.get("email") || "").trim(),
+        website: String(fd.get("website") || "").trim(), // honeypot
+        source: String(fd.get("source") || "landing").trim(),
+      };
+
+      try {
+        var res = await fetch("/api/waitlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          msg.textContent = "Please enter a valid email.";
+          msg.setAttribute("data-state", "error");
+          return;
+        }
+
+        msg.textContent = "You’re in. Thanks!";
+        msg.setAttribute("data-state", "success");
+        form.reset();
+      } catch {
+        msg.textContent = "Network error. Try again.";
+        msg.setAttribute("data-state", "error");
+      }
+    });
+  })();
+</script>
+
   </body>
 </html>

@@ -192,3 +192,7 @@ input::placeholder { color: rgba(255,255,255,0.22); }
 @media (prefers-reduced-motion: reduce) {
   .btn { transition: none; }
 }
+
+.fine[data-state="success"] { color: rgba(214,245,106,0.95); }
+.fine[data-state="error"] { color: rgba(255,120,120,0.95); }
+.fine[data-state="loading"] { color: rgba(255,255,255,0.6); }

@@ -3,112 +3,88 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Shmub, coming soon</title>
+    <title>Shmub, Coming Soon</title>
     <meta name="description" content="Shmub is a unified home base for your startup tools. Join the waitlist." />
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="bg" aria-hidden="true">
-      <div class="stars"></div>
-      <div class="glow glow-a"></div>
-      <div class="glow glow-b"></div>
-      <div class="vignette"></div>
+
+
     </div>
 
     <main class="wrap">
-      <section class="card">
-        <div class="pill">Coming soon!</div>
 
-        <div class="mark" aria-hidden="true">
-          <div class="leaf leaf-a"></div>
-          <div class="leaf leaf-b"></div>
+      <div class="pill">
+        <span class="pill-dot"></span>
+        Coming soon
+      </div>
+
+      <!-- Logo mark — bigger, centered -->
+      <div class="mark" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <rect x="4" y="4" width="56" height="56" rx="8" stroke="#3A6D9C" stroke-width="2" />
+  
+  <line x1="4" y1="18" x2="60" y2="18" stroke="#3A6D9C" stroke-width="2" />
+  
+  <circle cx="12" cy="11" r="1.5" fill="#3A6D9C" />
+  <circle cx="18" cy="11" r="1.5" fill="#3A6D9C" />
+  <circle cx="24" cy="11" r="1.5" fill="#3A6D9C" />
+  
+  <rect x="10" y="26" width="26" height="12" rx="3" stroke="#3A6D9C" stroke-width="2" />
+  <rect x="40" y="26" width="14" height="12" rx="3" stroke="#3A6D9C" stroke-width="2" />
+  
+  <rect x="10" y="42" width="14" height="12" rx="3" stroke="#3A6D9C" stroke-width="2" />
+  <rect x="28" y="42" width="26" height="12" rx="3" stroke="#3A6D9C" stroke-width="2" />
+</svg>
+      </div>
+
+      <h1>Shmub</h1>
+
+      <p class="sub">
+        A lightweight home base for your startup tools.<br>
+        Search, triage, and launch faster.
+      </p>
+
+      <form id="waitlist" class="form" method="post" action="/api/waitlist" autocomplete="on" novalidate>
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" placeholder="Your Name" autocomplete="name" />
         </div>
 
-        <h1>Shmub</h1>
-        <p class="sub">
-          A lightweight home base for your startup tools. Search, triage, and launch faster.
-        </p>
-
-        <form id="waitlist" class="form" method="post" action="/api/waitlist" autocomplete="on" novalidate>
-          <div class="field">
-            <label for="name">Your name</label>
-            <input id="name" name="name" type="text" placeholder="Your Name" autocomplete="name" />
-          </div>
-
-          <div class="field">
-            <label for="email">Your email</label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              inputmode="email"
-              placeholder="Your Email Address"
-              required
-              autocomplete="email"
-            />
-          </div>
-
-          <!-- Honeypot -->
-          <div class="hp">
-            <label for="website">Website</label>
-            <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
-          </div>
-
-          <input type="hidden" name="source" value="landing" />
-
-          <button class="btn" type="submit">
-            Join Waitlist
-          </button>
-
-          <p class="fine" id="msg" aria-live="polite"></p>
-        </form>
-
-        <div class="meta">
-          <span>For any queries, reach out at</span>
-          <a href="#" aria-label="X link">X</a>
-          <span class="dot">•</span>
-          <a href="#" aria-label="GitHub link">GitHub</a>
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            inputmode="email"
+            placeholder="Your Email Address"
+            required
+            autocomplete="email"
+          />
         </div>
-      </section>
+
+        <!-- Honeypot -->
+        <div class="hp">
+          <label for="website">Website</label>
+          <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <input type="hidden" name="source" value="landing" />
+
+        <button class="btn" type="submit">Join Waitlist</button>
+
+        <p class="fine" id="msg" aria-live="polite"></p>
+      </form>
+
+      <div class="meta">
+        <span>For any queries, reach out at</span>
+        <a href="https://x.com/CalebJStevens" aria-label="X link">X</a>
+        <span class="dot">•</span>
+        <a href="mailto:caleb@skymoontech.com" aria-label="Email">Email</a>
+      </div>
+
     </main>
-
-    <script>
-      // Tiny progressive enhancement, no libraries.
-      (function () {
-        var form = document.getElementById("waitlist");
-        var msg = document.getElementById("msg");
-        if (!form || !msg) return;
-
-        form.addEventListener("submit", async function (e) {
-          e.preventDefault();
-          msg.textContent = "Submitting...";
-
-          var fd = new FormData(form);
-          var payload = {
-            email: String(fd.get("email") || "").trim(),
-            website: String(fd.get("website") || "").trim(),
-            source: String(fd.get("source") || "landing").trim(),
-          };
-
-          try {
-            var res = await fetch("/api/waitlist", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            });
-
-            if (!res.ok) {
-              msg.textContent = "Please enter a valid email.";
-              return;
-            }
-
-            msg.textContent = "You’re in. Thanks!";
-            form.reset();
-          } catch {
-            msg.textContent = "Network error. Try again.";
-          }
-        });
-      })();
-    </script>
   </body>
 </html>

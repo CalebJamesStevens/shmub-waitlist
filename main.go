@@ -170,60 +170,6 @@ create unique index if not exists waitlist_signups_email_uniq
 	return err
 }
 
-func withCache(next http.Handler) http.Handler {
-	// Cache CSS aggressively, keep HTML relatively fresh
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if strings.HasSuffix(path, ".css") {
-			w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
-		} else {
-			w.Header().Set("Cache-Control", "public, max-age=300")
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func withContentTypes(next http.Handler) http.Handler {
-	// Helps avoid strict MIME checking issues if upstream defaults are weird.
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ext := strings.ToLower(filepath.Ext(r.URL.Path))
-		switch ext {
-		case ".css":
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		case ".js":
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		case ".html":
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		case ".svg":
-			w.Header().Set("Content-Type", "image/svg+xml")
-		case ".ico":
-			w.Header().Set("Content-Type", "image/x-icon")
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func withSecurityHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-
-		// Allow your current inline <script> in index.html.
-		// Tighten later by moving JS into /script.js and removing 'unsafe-inline'.
-		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline'; "+
-				"style-src 'self'; "+
-				"base-uri 'none'; "+
-				"form-action 'self'; "+
-				"frame-ancestors 'none'")
-
-		next.ServeHTTP(w, r)
-	})
-}
-
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()

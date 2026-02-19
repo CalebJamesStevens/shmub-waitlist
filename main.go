@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -27,7 +28,7 @@ type server struct {
 
 type waitlistReq struct {
 	Email    string `json:"email"`
-	Honeypot string `json:"website"` // hidden field in form, bots often fill it
+	Honeypot string `json:"website"`
 	Source   string `json:"source"`
 }
 
@@ -40,7 +41,7 @@ func main() {
 		log.Fatal("DATABASE_URL is required")
 	}
 
-	origin := strings.TrimSpace(os.Getenv("ORIGIN")) // optional, set to your domain for stricter CORS
+	origin := strings.TrimSpace(os.Getenv("ORIGIN"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -57,7 +58,7 @@ func main() {
 
 	s := &server{db: pool, origin: origin}
 
-	// Build static file server from embedded FS.
+	// Embedded static FS
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		log.Fatalf("static fs sub failed: %v", err)
@@ -71,22 +72,36 @@ func main() {
 	mux.HandleFunc("/healthz", s.healthz)
 	mux.HandleFunc("/api/waitlist", s.waitlist)
 
-	// Serve /static/* for legacy paths (if your HTML still references /static/style.css)
+	// Serve /static/* (if any old links still use that)
 	mux.Handle("/static/", http.StripPrefix("/static/", static))
 
-	// Serve / and all other assets from static root.
-	// "/" becomes "/index.html" so you don't get a directory listing.
+	// Serve assets at root, but handle homepage explicitly (no FileServer redirect loops)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/index.html"
-			static.ServeHTTP(w, r2)
+		p := r.URL.Path
+
+		// Normalize weird root variants that cause FileServer to 301 -> "./"
+		if p == "" || p == "/" || p == "." || p == "./" || p == "/." || p == "/./" {
+			// Serve index.html explicitly
+			b, err := staticFS.ReadFile("static/index.html")
+			if err != nil {
+				http.Error(w, "missing index.html", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "public, max-age=300")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(b)
 			return
 		}
-		static.ServeHTTP(w, r)
+
+		// Clean path to avoid oddities like //, /./ etc
+		clean := path.Clean("/" + strings.TrimPrefix(p, "/"))
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = clean
+
+		static.ServeHTTP(w, r2)
 	}))
 
-	// Basic hardening headers
 	h := withSecurityHeaders(mux)
 
 	log.Printf("listening on :%s", port)
@@ -94,6 +109,49 @@ func main() {
 		log.Fatal(err)
 	}
 }
+
+func withCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".css") {
+			w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "public, max-age=300")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withContentTypes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ext := strings.ToLower(filepath.Ext(r.URL.Path))
+		switch ext {
+		case ".css":
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case ".js":
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		case ".html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		case ".svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
+		case ".ico":
+			w.Header().Set("Content-Type", "image/x-icon")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
 
 func migrate(ctx context.Context, db *pgxpool.Pool) error {
 	_, err := db.Exec(ctx, `

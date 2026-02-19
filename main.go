@@ -92,10 +92,13 @@ create unique index if not exists waitlist_signups_email_uniq
 }
 
 func staticHandler() http.Handler {
-	// Serve embedded static files
-	fs := http.FS(staticFS)
-	return http.FileServer(fs)
+    sub, err := fs.Sub(staticFS, "static")
+    if err != nil {
+        panic(err)
+    }
+    return http.FileServer(http.FS(sub))
 }
+
 
 func withCache(next http.Handler) http.Handler {
 	// Cache CSS aggressively, keep HTML relatively fresh
@@ -117,7 +120,7 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy","default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self';")
 		next.ServeHTTP(w, r)
 	})
 }
